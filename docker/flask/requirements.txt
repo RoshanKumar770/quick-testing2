@@ -1,0 +1,32 @@
+# ── Web Framework ──────────────────────────────
+Flask==3.0.3
+gunicorn==22.0.0
+
+# ── Database ───────────────────────────────────
+Flask-SQLAlchemy==3.1.1
+psycopg2-binary==2.9.9        # PostgreSQL driver
+Flask-Migrate==4.0.7          # DB migrations via Alembic
+
+# ── Auth & Security ────────────────────────────
+Flask-Login==0.6.3
+Flask-Bcrypt==1.0.1
+Flask-WTF==1.2.1              # CSRF protection
+python-dotenv==1.0.1
+
+# ── Caching & Queue ────────────────────────────
+Flask-Caching==2.3.0
+celery==5.4.0
+redis==5.0.4
+
+# ── Serialization ──────────────────────────────
+marshmallow==3.21.3
+flask-marshmallow==1.2.1
+
+# ── Observability ──────────────────────────────
+prometheus-flask-exporter==0.23.1
+sentry-sdk[flask]==2.5.1
+
+# ── Testing ────────────────────────────────────
+pytest==8.2.2
+pytest-flask==1.3.0
+coverage==7.5.3

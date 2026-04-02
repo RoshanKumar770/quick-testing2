@@ -1,0 +1,170 @@
+# ────────────────────────────────────────────────────────────────
+#  DevOps Starter Kit — Local Development Stack
+#  Usage:  docker compose up --build
+# ────────────────────────────────────────────────────────────────
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ── Flask API ───────────────────────────────────────────────
+  flask:
+    build:
+      context: ../docker/flask
+      dockerfile: Dockerfile
+    container_name: flask_app
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_ENV: development
+      DATABASE_URL: postgresql://devuser:devpass@postgres:5432/devdb
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: dev-secret-change-in-production
+    volumes:
+      - ../app:/app/app          # hot-reload in dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Node.js Frontend / API ──────────────────────────────────
+  node:
+    build:
+      context: ../docker/node
+      dockerfile: Dockerfile
+    container_name: node_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      API_URL: http://flask:5000
+      PORT: 3000
+    volumes:
+      - ../src:/app/src           # hot-reload in dev
+      - /app/node_modules         # preserve container node_modules
+    depends_on:
+      - flask
+    networks:
+      - backend
+      - frontend
+    logging: *default-logging
+
+  # ── PostgreSQL ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: devuser
+      POSTGRES_PASSWORD: devpass
+      POSTGRES_DB: devdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d   # seed scripts
+    networks:
+      - backend
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devuser -d devdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Nginx Reverse Proxy ─────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: nginx_proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - flask
+      - node
+    networks:
+      - frontend
+      - backend
+    logging: *default-logging
+
+  # ── Celery Worker (async tasks) ─────────────────────────────
+  celery_worker:
+    build:
+      context: ../docker/flask
+      dockerfile: Dockerfile
+    container_name: celery_worker
+    restart: unless-stopped
+    command: celery -A app.celery worker --loglevel=info --concurrency=4
+    environment:
+      FLASK_ENV: development
+      DATABASE_URL: postgresql://devuser:devpass@postgres:5432/devdb
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: dev-secret-change-in-production
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - backend
+    logging: *default-logging
+
+  # ── Flower — Celery Monitor ─────────────────────────────────
+  flower:
+    image: mher/flower:2.0
+    container_name: flower_monitor
+    restart: unless-stopped
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      FLOWER_PORT: 5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    networks:
+      - backend
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  frontend:
+  backend:
+    internal: true
